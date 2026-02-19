@@ -9,10 +9,9 @@ void TOF400::begin() {
     Wire.setClock(400000);
 
     sensor.setTimeout(500);
-    if (!sensor.init())
-    {
-    Serial.println("Failed to detect and initialize sensor!");
-    while (1);
+    if (!sensor.init()) {
+        Serial.println("Failed to detect and initialize sensor!");
+        while (1);
     }
 
     // --- ส่วนที่ต้องแก้สำหรับการวัด Gravity ในท่อ ---
