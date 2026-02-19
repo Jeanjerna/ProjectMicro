@@ -10,6 +10,7 @@ class LCD {
     Ucglib_ST7735_18x128x160_HWSPI *ucg; // ตัวแปรสำหรับควบคุม LCD
 
   public:
+  
     /**
      * @param RES พินสำหรับ Reset ของ LCD
      * @param DC พินสำหรับ Data/Command ของ LCD
