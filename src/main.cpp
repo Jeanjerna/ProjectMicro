@@ -1,21 +1,25 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <VL53L1X.h>
-#include <L298N.h>
 #include "LCD.h"
 #include "TOF400.h"
 #include "Sample.h"
+#include "Solenoid.h"
+#include "Magnet.h"
  
-LCD lcd(17, 16, 4); // กำหนดที่อยู่ I2C และขนาดจอ LCD
-L298N motor(25, 33, 32); // กำหนดพินสำหรับควบคุมมอเตอร์ L298N
+LCD lcd(17, 16, 4); 
+Magnet magnet(25, 33, 32);
+TOF400 tof;
+Solenoid solenoid(26);
  
 void setup()
 {
   Serial.begin(9600);
 
-  lcd.begin(); // เริ่มต้นการทำงานของ LCD
-  TOF400::begin(); // เริ่มต้นการทำงานของเซ็นเซอร์ TOF400
-  motor.setSpeed(0); // ตั้งความเร็วของมอเตอร์ (0-255)
+  lcd.begin();
+  tof.begin();
+  solenoid.begin();
+  magnet.begin();
 }
  
 int lastPrintTime = 0;
@@ -26,19 +30,23 @@ void loop()
   //   lastPrintTime = millis();
   //   lcd.clearScreen();
   //   lcd.setCursor(0, 50);
-  //   lcd.print("Distance: " + String(TOF400::getDistance() / 10.0) + " cm");
+  //   lcd.print("Distance: " + String(tof.getDistance() / 10.0) + " cm");
   // }
 
   for (int i = 0; i < 256; i++) {
-    motor.setSpeed(i);
-    motor.forward();
+    magnet.on(i);
     
     Serial.println("Speed: " + String(i));
     if (i >= 255) {
-      Serial.println("Max speed reached. Stopping motor.");
-      delay(20000); // รอ 1 วินาทีเพื่อให้มอเตอร์หยุดนิ่ง
+      Serial.println("Max speed reached. Stopping magnet.");
+      delay(6000); // รอ 1 วินาทีเพื่อให้มอเตอร์หยุดนิ่ง
     }
-    delay(200);
+    delay(50);
   }
+
+  // digitalWrite(solenoldPin, HIGH); // เริ่มต้นให้โซลินอยด์ปิดอยู่
+  // delay(800);
+  // digitalWrite(solenoldPin, LOW); // เริ่มต้นให้โซลินอยด์ปิดอยู่
+  // delay(2000);
 
 }
