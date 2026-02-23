@@ -45,6 +45,9 @@ state previousState;
 mode currentMode;
 unsigned int hitTime = 534249.0 - 80000.0;
 
+unsigned long idleStartTime = 0; 
+const unsigned long IDLE_TIMEOUT = 20000; // 20 วินาที (20,000 ms)
+
 volatile unsigned long solenoidStartTime = 0;
 volatile bool solenoidActive = false;
 volatile bool hited = false;
@@ -80,6 +83,26 @@ void updateSolenoid() {
   }
 }
 
+void enterDeepSleep() {
+  Serial.println("Entering Deep Sleep due to inactivity...");
+  
+  lcd.clearScreen();
+  lcd.setCursor(20, 70);
+  lcd.setColor(150, 150, 150);
+  lcd.print("SLEEPING...");
+  delay(3000);
+  lcd.clearScreen();
+
+  solenoid.off();
+  magnet.off();
+
+  // ตั้งค่าให้ตื่นเมื่อ Pin 36 (BTN1) มีสถานะเป็น LOW (0)
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_36, 0);
+
+  // สั่งเข้า Deep Sleep
+  esp_deep_sleep_start();
+}
+
 void IRAM_ATTR HIT_BALL() {
   if (solenoidActive && hited) return; // ป้องกันการกดซ้ำขณะที่โซลินอยด์ยังทำงานอยู่
 
@@ -88,10 +111,14 @@ void IRAM_ATTR HIT_BALL() {
   solenoidActive = true;
   hited = true;
 }
- 
+
 void setup()
 {
   Serial.begin(9600);
+
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+    Serial.println("Woke up from Deep Sleep!");
+  }
 
   lcd.begin();
   tof.begin();
@@ -119,6 +146,8 @@ void setup()
 
   hited = false;
 
+  idleStartTime = millis();
+
   Serial.println("Setup complete.");
 }
 
@@ -134,7 +163,17 @@ void loop() {
       lcd.setColor(255, 255, 255);
       lcd.print("State: IDLE");
       hited = false;
+      idleStartTime = millis();
       previousState = currentState;
+    }
+
+    if (millis() - idleStartTime >= IDLE_TIMEOUT) {
+      enterDeepSleep();
+    }
+
+    // หากมีการกดปุ่มใดๆ ในหน้า IDLE (เช่น เผลอกดปุ่มอื่น) ให้รีเซ็ตเวลาใหม่จะได้ไม่หลับ
+    if (btn1.fell() || btn3.fell() || btn4.fell()) {
+      idleStartTime = millis();
     }
     
     solenoid.off();
