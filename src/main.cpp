@@ -3,6 +3,9 @@
 #include <VL53L1X.h>
 #include <Bounce2.h>
 #include <vector>
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <ArduinoJson.h>
 #include "LCD.h"
 #include "TOF400.h"
 #include "Sample.h"
@@ -23,6 +26,13 @@ enum mode {
 
 using namespace std;
 hw_timer_t *My_timer = NULL;
+
+const char* ssid = "Home coming_2.4G";
+const char* password = "33333333";
+const char* mqtt_server = "broker.hivemq.com";
+
+WiFiClient espClient;
+PubSubClient client(espClient);
  
 LCD lcd(17, 16, 4); 
 Magnet magnet(25, 33, 32);
@@ -51,6 +61,30 @@ const unsigned long IDLE_TIMEOUT = 20000; // 20 วินาที (20,000 ms)
 volatile unsigned long solenoidStartTime = 0;
 volatile bool solenoidActive = false;
 volatile bool hited = false;
+
+void setup_wifi() {
+  Serial.print("Connecting to WiFi");
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi Connected!");
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Connecting to MQTT...");
+    String clientId = "ESP32Client-" + String(random(0xffff), HEX);
+    if (client.connect(clientId.c_str())) {
+      Serial.println("Connected!");
+    } else {
+      Serial.print("Failed, rc=");
+      Serial.print(client.state());
+      delay(2000);
+    }
+  }
+}
 
 void setupButtons_1_4() {
   btn1.attach(BTN1, INPUT);
@@ -110,6 +144,7 @@ void IRAM_ATTR HIT_BALL() {
   solenoidStartTime = millis(); 
   solenoidActive = true;
   hited = true;
+  detachInterrupt(digitalPinToInterrupt(BTN5));
 }
 
 void setup()
@@ -148,10 +183,19 @@ void setup()
 
   idleStartTime = millis();
 
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setBufferSize(2048);
+
   Serial.println("Setup complete.");
 }
 
 void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
   updateButtons();
   updateSolenoid();
 
@@ -276,6 +320,7 @@ void loop() {
       magnet.off();
       if (currentMode == mode::AUTO) timerAlarmEnable(My_timer);
       unsigned long dropStartTime = millis();
+
       while (Distance < 1300) {
         delay(1);
         Distance = tof.getDistance();
@@ -295,16 +340,31 @@ void loop() {
         }
       }
 
+      DynamicJsonDocument doc(2048); 
+      JsonArray tArray = doc.createNestedArray("t"); 
+      JsonArray dArray = doc.createNestedArray("d"); 
+
+      unsigned long t0 = timeStamps[0];
 
       for (int i = 0; i < distanceReadings.size(); i++) {
-        updateSolenoid(); // ระหว่างปริ้นก็เช็คปิดโซลินอยด์ไปด้วย
-        Serial.print("Time: ");
-        Serial.print((timeStamps[i]) );
-        Serial.print(" s, Distance: ");
-        Serial.println(distanceReadings[i]); 
+        tArray.add((timeStamps[i] - t0));
+        dArray.add(distanceReadings[i]);
       }
 
-      // ปิดโซลินอยด์ให้เรียบร้อย (ถ้ายังเปิดค้างอยู่)
+      String payload;
+      serializeJson(doc, payload);
+
+      if (!client.connected()) {
+        Serial.println("MQTT disconnected! Reconnecting before publish...");
+        reconnect();
+      }
+
+      if (client.publish("testtopic/MQTT/CPE1", payload.c_str())) {
+        Serial.println("Already published data to MQTT:");
+      } else {
+        Serial.println("Publish FAILED! (Payload might be too large)");
+      }
+
       solenoid.off();
       solenoidActive = false;
       
