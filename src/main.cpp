@@ -4,7 +4,7 @@
   #include <Bounce2.h>
   #include <vector>
   #include <WiFi.h>
-  #include <PubSubClient.h>
+  #include <MQTT.h>
   #include <ArduinoJson.h>
   #include "LCD.h"
   #include "TOF400.h"
@@ -31,8 +31,8 @@
   const char* password = "33333333";
   const char* mqtt_server = "broker.hivemq.com";
 
-  WiFiClient espClient;
-  PubSubClient client(espClient);
+  WiFiClient net;
+  MQTTClient client(2048);
   
   LCD lcd(17, 16, 4); 
   Magnet magnet(25, 33, 32);
@@ -63,6 +63,8 @@
   volatile bool hited = false;
   volatile bool flagDetachBtn5 = false;
 
+  bool IsSettingUp = false;
+
   void setup_wifi() {
     Serial.print("Connecting to WiFi");
     WiFi.begin(ssid, password);
@@ -73,19 +75,101 @@
     Serial.println("\nWiFi Connected!");
   }
 
-  void reconnect() {
-    while (!client.connected()) {
-      Serial.print("Connecting to MQTT...");
-      String clientId = "ESP32Client-" + String(random(0xffff), HEX);
-      if (client.connect(clientId.c_str())) {
-        Serial.println("Connected!");
-      } else {
-        Serial.print("Failed, rc=");
-        Serial.print(client.state());
-        delay(2000);
-      }
+void messageReceived(String &topic, String &payload) {
+  Serial.println("Message arrived on topic: " + topic);
+  Serial.println("Payload: " + payload);
+  idleStartTime = millis();
+
+  // ตัดช่องว่างซ้ายขวาเผื่อไว้ จะได้เทียบ String ได้แม่นยำ
+  payload.trim();
+
+  // 1. ปุ่ม IDLE
+  if (payload == "IDLE") {
+    currentState = IDLE;
+    Serial.println("MQTT Command: Switched to IDLE");
+  } 
+  
+  // 2. ปุ่ม SETUP
+  else if (payload == "SETUP" && IsSettingUp == false) {
+    currentState = SETUP;
+    Serial.println("MQTT Command: Switched to SETUP");
+  } 
+  
+  // 3. ปุ่ม START
+  else if (payload == "START") {
+    // ป้องกันไม่ให้กด START ถ้าไม่ได้อยู่ในหน้า SETUP
+    if (currentState == SETUP) {
+      currentState = RUNNING;
+      Serial.println("MQTT Command: STARTING...");
+    } else {
+      Serial.println("MQTT Command: Cannot START, not in SETUP state!");
+    }
+  } 
+  
+  // 4. ปุ่ม SWAP MODE
+  else if (payload == "SWAP_MODE") {
+    // สลับโหมดได้เฉพาะตอนอยู่หน้า SETUP (เหมือนการกด BTN4)
+    if (currentState == SETUP) {
+      currentMode = (currentMode == AUTO) ? MANUAL : AUTO;
+      Serial.println("MQTT Command: Switched Mode");
+      
+      // อัปเดตหน้าจอ LCD ทันทีเมื่อเปลี่ยนโหมดผ่าน MQTT
+      lcd.clearScreen();
+      lcd.setColor(0, 200, 0);
+      lcd.setCursor(5, 20);
+      lcd.print("MAGNET READY!");
+
+      lcd.setColor(255, 255, 255);
+      lcd.setCursor(5, 50);
+      lcd.print("MODE: " + String((currentMode == AUTO) ? "AUTO" : "MANUAL"));
+      
+      lcd.setColor(200, 200, 0);
+      lcd.setCursor(20, 100);
+      lcd.print("PRESS START");
+      lcd.setCursor(30, 120);
+      lcd.print("TO BEGIN");
     }
   }
+}
+
+void connectMQTT() {
+  while (!client.connected()) {
+    Serial.print("Connecting to MQTT...");
+    String clientId = "ESP32Client-" + String(random(0xffff), HEX);
+    
+    // เชื่อมต่อ MQTT แบบไม่มี Username/Password
+    if (client.connect(clientId.c_str())) {
+      Serial.println("Connected!");
+      
+      // 📍 สำคัญ: กด Subscribe Topic ที่เราต้องการรับคำสั่ง
+      client.subscribe("testtopic/MQTT/CPE1/command");
+      
+    } else {
+      Serial.print(".");
+      delay(1000);
+    }
+  }
+}
+
+  void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Connecting to MQTT...");
+    String clientId = "ESP32Client-" + String(random(0xffff), HEX);
+    
+    // พยายามเชื่อมต่อ
+    if (client.connect(clientId.c_str())) {
+      Serial.println(" Connected!");
+      
+      // 📍 เมื่อเชื่อมต่อสำเร็จ ให้กด Subscribe Topic เพื่อรอรับคำสั่งทันที
+      client.subscribe("testtopic/MQTT/CPE1/command");
+      
+    } else {
+      // ถ้าเชื่อมต่อไม่สำเร็จ ไม่ต้องใช้ client.state() แล้ว ให้มันพิมพ์แจ้งเตือนและวนลูปใหม่เลย
+      Serial.println(" Failed! Retrying in 2 seconds...");
+      delay(2000);
+    }
+  }
+}
 
   void setupButtons_1_4() {
     btn1.attach(BTN1, INPUT);
@@ -184,6 +268,7 @@
 
   void STATE_SETUP_FUNC() {
     if (previousState != currentState) {
+        IsSettingUp = true;      
         Serial.println("SETUP");
         lcd.clearScreen();
 
@@ -217,6 +302,7 @@
         lcd.print("TO BEGIN");
 
         previousState = currentState;
+        IsSettingUp = false;
       }
 
       if (btn1.fell()) {
@@ -283,15 +369,15 @@
     idleStartTime = millis();
 
     setup_wifi();
-    client.setServer(mqtt_server, 1883);
-    client.setBufferSize(2048);
+    client.begin(mqtt_server, net);
+    client.onMessage(messageReceived);
 
     Serial.println("Setup complete.");
   }
 
   void loop() {
     if (!client.connected()) {
-      reconnect();
+      connectMQTT();
     }
     client.loop();
 
