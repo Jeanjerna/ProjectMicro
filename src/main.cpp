@@ -147,61 +147,8 @@ void IRAM_ATTR HIT_BALL() {
   detachInterrupt(digitalPinToInterrupt(BTN5));
 }
 
-void setup()
-{
-  Serial.begin(9600);
-
-  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
-    Serial.println("Woke up from Deep Sleep!");
-  }
-
-  lcd.begin();
-  tof.begin();
-  solenoid.begin();
-  magnet.begin();
-  
-  setupButtons_1_4();
-  pinMode(BTN5, INPUT);
-
-  currentState = IDLE;
-  previousState = IDLE;
-  currentMode = MANUAL;
-
-  lcd.clearScreen();
-  lcd.setCursor(20, 70);
-  lcd.setColor(255, 255, 255);
-  lcd.print("State: IDLE");
-
-  solenoid.off();
-  magnet.off();
-
-  My_timer = timerBegin(0, 80, true);         // set counter frequency to 1MHz
-  timerAttachInterrupt(My_timer, &HIT_BALL, true); // point to the ISR
-  timerAlarmWrite(My_timer, hitTime, true);
-
-  hited = false;
-
-  idleStartTime = millis();
-
-  setup_wifi();
-  client.setServer(mqtt_server, 1883);
-  client.setBufferSize(2048);
-
-  Serial.println("Setup complete.");
-}
-
-void loop() {
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
-
-  updateButtons();
-  updateSolenoid();
-
-  switch (currentState) {
-  case state::IDLE:
-    if (previousState != currentState) {
+void STATE_IDLE_FUNC() {
+  if (previousState != currentState) {
       lcd.clearScreen();
       lcd.setCursor(20, 70);
       lcd.setColor(255, 255, 255);
@@ -226,10 +173,10 @@ void loop() {
     if (btn2.fell()) {
       currentState = SETUP;
     }
-    break;
+}
 
-  case state::SETUP:
-    if (previousState != currentState) {
+void STATE_SETUP_FUNC() {
+  if (previousState != currentState) {
       lcd.clearScreen();
 
       for (int power = 0; power <= 255; power += 5) {
@@ -243,7 +190,7 @@ void loop() {
         lcd.setCursor(40, 100);
         lcd.print(String(power) + " / 255");
         if (power == 255) delay(1000);
-        else delay(7);
+        else delay(3);
       }
 
       lcd.clearScreen();
@@ -289,7 +236,67 @@ void loop() {
       lcd.setCursor(30, 120);
       lcd.print("TO BEGIN");
     } 
-    
+}
+
+void setup()
+{
+  Serial.begin(9600);
+
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
+    Serial.println("Woke up from Deep Sleep!");
+  }
+
+  lcd.begin();
+  tof.begin();
+  solenoid.begin();
+  magnet.begin();
+  
+  setupButtons_1_4();
+  pinMode(BTN5, INPUT);
+
+  currentState = IDLE;
+  previousState = RUNNING;
+  currentMode = MANUAL;
+
+  lcd.clearScreen();
+  lcd.setCursor(20, 70);
+  lcd.setColor(255, 255, 255);
+  lcd.print("setup...");
+
+  solenoid.off();
+  magnet.off();
+
+  My_timer = timerBegin(0, 80, true);         // set counter frequency to 1MHz
+  timerAttachInterrupt(My_timer, &HIT_BALL, true); // point to the ISR
+  timerAlarmWrite(My_timer, hitTime, true);
+
+  hited = false;
+
+  idleStartTime = millis();
+
+  setup_wifi();
+  client.setServer(mqtt_server, 1883);
+  client.setBufferSize(2048);
+
+  Serial.println("Setup complete.");
+}
+
+void loop() {
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  updateButtons();
+  updateSolenoid();
+
+  switch (currentState) {
+  case state::IDLE:
+    STATE_IDLE_FUNC();
+    break;
+
+  case state::SETUP:
+    STATE_SETUP_FUNC();
     break;
 
   case state::RUNNING:
