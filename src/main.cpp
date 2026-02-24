@@ -65,6 +65,8 @@
 
   bool IsSettingUp = false;
 
+  unsigned long lastMqttRetry = 0;
+
   void setup_wifi() {
     Serial.print("Connecting to WiFi");
     WiFi.begin(ssid, password);
@@ -109,7 +111,7 @@ void messageReceived(String &topic, String &payload) {
   // 4. ปุ่ม SWAP MODE
   else if (payload == "SWAP_MODE") {
     // สลับโหมดได้เฉพาะตอนอยู่หน้า SETUP (เหมือนการกด BTN4)
-    if (currentState == SETUP) {
+    if (currentState == SETUP && IsSettingUp == false) {
       currentMode = (currentMode == AUTO) ? MANUAL : AUTO;
       Serial.println("MQTT Command: Switched Mode");
       
@@ -133,40 +135,16 @@ void messageReceived(String &topic, String &payload) {
 }
 
 void connectMQTT() {
-  while (!client.connected()) {
+  if (millis() - lastMqttRetry > 5000) { // ลองต่อใหม่ทุกๆ 5 วินาที
+    lastMqttRetry = millis();
     Serial.print("Connecting to MQTT...");
     String clientId = "ESP32Client-" + String(random(0xffff), HEX);
     
-    // เชื่อมต่อ MQTT แบบไม่มี Username/Password
     if (client.connect(clientId.c_str())) {
       Serial.println("Connected!");
-      
-      // 📍 สำคัญ: กด Subscribe Topic ที่เราต้องการรับคำสั่ง
       client.subscribe("testtopic/MQTT/CPE1/command");
-      
     } else {
-      Serial.print(".");
-      delay(1000);
-    }
-  }
-}
-
-  void reconnect() {
-  while (!client.connected()) {
-    Serial.print("Connecting to MQTT...");
-    String clientId = "ESP32Client-" + String(random(0xffff), HEX);
-    
-    // พยายามเชื่อมต่อ
-    if (client.connect(clientId.c_str())) {
-      Serial.println(" Connected!");
-      
-      // 📍 เมื่อเชื่อมต่อสำเร็จ ให้กด Subscribe Topic เพื่อรอรับคำสั่งทันที
-      client.subscribe("testtopic/MQTT/CPE1/command");
-      
-    } else {
-      // ถ้าเชื่อมต่อไม่สำเร็จ ไม่ต้องใช้ client.state() แล้ว ให้มันพิมพ์แจ้งเตือนและวนลูปใหม่เลย
-      Serial.println(" Failed! Retrying in 2 seconds...");
-      delay(2000);
+      Serial.println(" Failed. Will retry in 5s.");
     }
   }
 }
@@ -209,6 +187,7 @@ void connectMQTT() {
 
   void enterDeepSleep() {
     Serial.println("Entering Deep Sleep due to inactivity...");
+    client.publish("testtopic/MQTT/CPE1/STATE", "DEEP_SLEEP");
     
     lcd.clearScreen();
     lcd.setCursor(20, 70);
@@ -239,6 +218,7 @@ void connectMQTT() {
 
   void STATE_IDLE_FUNC() {
     if (previousState != currentState) {
+        client.publish("testtopic/MQTT/CPE1/STATE", "IDLE");
         Serial.println("IDLE");
         lcd.clearScreen();
         lcd.setCursor(20, 70);
@@ -268,6 +248,7 @@ void connectMQTT() {
 
   void STATE_SETUP_FUNC() {
     if (previousState != currentState) {
+        client.publish("testtopic/MQTT/CPE1/STATE", "SETUP");
         IsSettingUp = true;      
         Serial.println("SETUP");
         lcd.clearScreen();
@@ -284,6 +265,7 @@ void connectMQTT() {
           lcd.print(String(power) + " / 255");
           if (power == 255) delay(1000);
           else delay(1);
+          client.publish("testtopic/MQTT/CPE1/STATE", "SETTING_UP_" + String(power));
         }
 
         lcd.clearScreen();
@@ -304,6 +286,8 @@ void connectMQTT() {
         previousState = currentState;
         IsSettingUp = false;
       }
+
+      client.publish("testtopic/MQTT/CPE1/STATE", "SETUP COMPLETE WITH MODE " + String((currentMode == AUTO) ? "AUTO" : "MANUAL"));
 
       if (btn1.fell()) {
         currentState = IDLE;
@@ -372,6 +356,18 @@ void connectMQTT() {
     client.begin(mqtt_server, net);
     client.onMessage(messageReceived);
 
+    Serial.print("Connecting to MQTT initial...");
+    while (!client.connected()) {
+      String clientId = "ESP32Client-" + String(random(0xffff), HEX);
+      if (client.connect(clientId.c_str())) {
+        Serial.println(" Connected!");
+        client.subscribe("testtopic/MQTT/CPE1/command");
+      } else {
+        Serial.print(".");
+        delay(1000); // รอ 1 วินาทีแล้วลองใหม่จนกว่าจะติด
+      }
+    }
+
     Serial.println("Setup complete.");
   }
 
@@ -395,6 +391,7 @@ void connectMQTT() {
 
     case state::RUNNING:
       if (previousState != currentState) {
+        client.publish("testtopic/MQTT/CPE1/STATE", "RUNNING");
         Serial.println("RUNNING");
 
         for (int i = 3; i > 0; i--) {
@@ -404,7 +401,10 @@ void connectMQTT() {
           lcd.print("STARTING IN...");
           lcd.setCursor(50, 100);
           lcd.print(String(i));
+          client.publish("testtopic/MQTT/CPE1/STATE", "STARTING_IN_" + String(i));
           delay(1000);
+
+          client.loop();
         }
 
         lcd.clearScreen();
@@ -456,19 +456,18 @@ void connectMQTT() {
           String payload;
           serializeJson(doc, payload);
 
-          if (!client.connected()) {
-            Serial.println("MQTT disconnected! Reconnecting before publish...");
-            reconnect();
-          }
-
-          if (client.publish("testtopic/MQTT/CPE1", payload.c_str())) {
-            Serial.println("Already published data to MQTT:");
-          } else {
-            Serial.println("Publish FAILED! (Payload might be too large)");
-          }
+          if (client.connected()) {
+            if (client.publish("testtopic/MQTT/CPE1", payload)) {
+              Serial.println("Published data to MQTT!");
+            } else {
+              Serial.println("Publish FAILED!");
+            }
         } else {
-          Serial.println("No distance readings collected!");
+           Serial.println("Cannot publish: MQTT disconnected.");
         }
+      } else {
+        Serial.println("No distance readings collected!");
+      }
 
         solenoid.off();
         solenoidActive = false;
