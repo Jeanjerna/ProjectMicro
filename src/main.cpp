@@ -111,7 +111,7 @@ void updateButtons() {
 }
 
 void updateSolenoid() {
-  if (solenoidActive && (millis() - solenoidStartTime >= 300)) {
+  if (solenoidActive && (millis() - solenoidStartTime >= 150)) {
     solenoid.off();
     solenoidActive = false;
   }
@@ -242,9 +242,8 @@ void loop() {
         lcd.print("MAGNET POWER: ");
         lcd.setCursor(40, 100);
         lcd.print(String(power) + " / 255");
-        delay(20);
-        
         if (power == 255) delay(1000);
+        else delay(7);
       }
 
       lcd.clearScreen();
