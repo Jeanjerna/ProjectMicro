@@ -227,6 +227,9 @@ void connectMQTT() {
         hited = false;
         idleStartTime = millis();
         previousState = currentState;
+
+        solenoid.off();
+        magnet.off();
       }
 
       if (millis() - idleStartTime >= IDLE_TIMEOUT) {
@@ -238,8 +241,7 @@ void connectMQTT() {
         idleStartTime = millis();
       }
       
-      solenoid.off();
-      magnet.off();
+      
 
       if (btn2.fell()) {
         currentState = SETUP;

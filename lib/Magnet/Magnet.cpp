@@ -17,4 +17,6 @@ void Magnet::on(int speed) {
 
 void Magnet::off() {
     magnet->stop(); // หยุดมอเตอร์
+    magnet->setSpeed(0);
+    magnet->forward();
 }
