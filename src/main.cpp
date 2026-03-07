@@ -320,7 +320,7 @@ void connectMQTT() {
 
   void setup()
   {
-    Serial.begin(9600);
+    Serial.begin(250000);
 
     if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
       Serial.println("Woke up from Deep Sleep!");
@@ -425,7 +425,7 @@ void connectMQTT() {
         if (currentMode == mode::AUTO) timerAlarmEnable(My_timer);
         unsigned long dropStartTime = millis();
 
-        while (Distance < 1300) {
+        while (Distance < 1000) {
           // delay(1);
           Distance = tof.getDistance();
           distanceReadings.push_back(Distance);
