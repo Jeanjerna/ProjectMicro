@@ -425,17 +425,20 @@ void connectMQTT() {
         if (currentMode == mode::AUTO) timerAlarmEnable(My_timer);
         unsigned long dropStartTime = millis();
 
-        while (Distance < 1000) {
+        while (Distance < 1300) {
           // delay(1);
           Distance = tof.getDistance();
-          distanceReadings.push_back(Distance);
-          timeStamps.push_back(millis());
-
+          
+          if (Distance < 1100) 
+          {
+            timeStamps.push_back(millis());
+            distanceReadings.push_back(Distance);
+          }
           updateSolenoid();
 
           if (millis() - dropStartTime > 2000) break;
         }
-
+                
         // รอโซลินอยด์ทำงาน (เฉพาะโหมด AUTO)
         if (currentMode == mode::AUTO) {
           // รอจนกว่าจะมีการตี หรือหมดเวลา (เผื่อระบบรวนจะได้ไม่ค้าง)
