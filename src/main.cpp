@@ -232,6 +232,9 @@ void connectMQTT() {
         hited = false;
         idleStartTime = millis();
         previousState = currentState;
+
+        solenoid.off();
+        magnet.off();
       }
 
       if (millis() - idleStartTime >= IDLE_TIMEOUT) {
@@ -243,8 +246,7 @@ void connectMQTT() {
         idleStartTime = millis();
       }
       
-      solenoid.off();
-      magnet.off();
+      
 
       if (btn2.fell()) {
         currentState = SETUP;
@@ -323,7 +325,7 @@ void connectMQTT() {
 
   void setup()
   {
-    Serial.begin(9600);
+    Serial.begin(250000);
 
     if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT0) {
       Serial.println("Woke up from Deep Sleep!");
@@ -433,14 +435,17 @@ void connectMQTT() {
         while (Distance < 1300) {
           // delay(1);
           Distance = tof.getDistance();
-          distanceReadings.push_back(Distance);
-          timeStamps.push_back(millis());
-
+          
+          if (Distance < 1100) 
+          {
+            timeStamps.push_back(millis());
+            distanceReadings.push_back(Distance);
+          }
           updateSolenoid();
 
           if (millis() - dropStartTime > 2000) break;
         }
-
+                
         // รอโซลินอยด์ทำงาน (เฉพาะโหมด AUTO)
         if (currentMode == mode::AUTO) {
           // รอจนกว่าจะมีการตี หรือหมดเวลา (เผื่อระบบรวนจะได้ไม่ค้าง)
