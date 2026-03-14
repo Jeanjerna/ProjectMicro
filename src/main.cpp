@@ -59,7 +59,7 @@
   const unsigned long IDLE_TIMEOUT = 20000; // 20 วินาที (20,000 ms)
 
   volatile unsigned long solenoidStartTime = 0;
-  volatile bool solenoidActive = false;
+  volatile bool flagsolenoid = false;
   volatile bool hited = false;
   volatile bool flagDetachBtn5 = false;
 
@@ -135,7 +135,7 @@ void messageReceived(String &topic, String &payload) {
 }
 
 void connectMQTT() {
-  if (millis() - lastMqttRetry > 5000) { // ลองต่อใหม่ทุกๆ 5 วินาที
+  if (millis() - lastMqttRetry > 5000) {
     lastMqttRetry = millis();
     Serial.print("Connecting to MQTT...");
     String clientId = "ESP32Client-" + String(random(0xffff), HEX);
@@ -174,14 +174,13 @@ void connectMQTT() {
   }
 
   void updateSolenoid() {
-    if (flagDetachBtn5) {
-      detachInterrupt(digitalPinToInterrupt(BTN5));
-      flagDetachBtn5 = false;
-    }
-    
-    if (solenoidActive && (millis() - solenoidStartTime >= 150)) {
+    if (flagsolenoid && hited && (millis() - solenoidStartTime >= 150)) {
       solenoid.off();
-      solenoidActive = false;
+      flagsolenoid = false;
+      hited = false;
+    } else if (flagsolenoid && !hited) {
+      solenoid.on();
+      hited = true;
     }
   }
 
@@ -206,13 +205,19 @@ void connectMQTT() {
     esp_deep_sleep_start();
   }
 
-  void IRAM_ATTR HIT_BALL() {
-    if (solenoidActive && hited) return; // ป้องกันการกดซ้ำขณะที่โซลินอยด์ยังทำงานอยู่
-
-    solenoid.on();                
+  void IRAM_ATTR HIT_BALL_AUTO() {
+    if (flagsolenoid && hited) return; // ป้องกันการกดซ้ำขณะที่โซลินอยด์ยังทำงานอยู่
+             
     solenoidStartTime = millis(); 
-    solenoidActive = true;
-    hited = true;
+    flagsolenoid = true;
+    flagDetachBtn5 = true;
+  }
+
+    void IRAM_ATTR HIT_BALL_MANUAL() {
+    if (flagsolenoid && hited) return; // ป้องกันการกดซ้ำขณะที่โซลินอยด์ยังทำงานอยู่
+             
+    solenoidStartTime = millis(); 
+    flagsolenoid = true;
     flagDetachBtn5 = true;
   }
 
@@ -233,7 +238,7 @@ void connectMQTT() {
         enterDeepSleep();
       }
 
-      // หากมีการกดปุ่มใดๆ ในหน้า IDLE (เช่น เผลอกดปุ่มอื่น) ให้รีเซ็ตเวลาใหม่จะได้ไม่หลับ
+      // หากมีการกดปุ่มใดๆ ในหน้า IDLE ให้รีเซ็ตเวลาใหม่จะได้ไม่หลับ
       if (btn1.fell() || btn3.fell() || btn4.fell()) {
         idleStartTime = millis();
       }
@@ -344,11 +349,9 @@ void connectMQTT() {
     solenoid.off();
     magnet.off();
 
-    My_timer = timerBegin(0, 80, true);         // set counter frequency to 1MHz
-    timerAttachInterrupt(My_timer, &HIT_BALL, true); // point to the ISR
+    My_timer = timerBegin(0, 80, true);        
+    timerAttachInterrupt(My_timer, &HIT_BALL_AUTO, true); 
     timerAlarmWrite(My_timer, hitTime, true);
-
-    hited = false;
 
     idleStartTime = millis();
 
@@ -390,6 +393,10 @@ void connectMQTT() {
       break;
 
     case state::RUNNING:
+      
+      flagsolenoid = false;
+      hited = false;
+      
       if (previousState != currentState) {
         client.publish("testtopic/MQTT/CPE1/STATE", "RUNNING");
         Serial.println("RUNNING");
@@ -417,7 +424,7 @@ void connectMQTT() {
         int Distance = tof.getDistance();
 
         timerWrite(My_timer, 0);
-        if (currentMode == mode::MANUAL) attachInterrupt(digitalPinToInterrupt(BTN5), HIT_BALL, RISING);
+        if (currentMode == mode::MANUAL) attachInterrupt(digitalPinToInterrupt(BTN5), HIT_BALL_MANUAL, FALLING);
 
         magnet.off();
         if (currentMode == mode::AUTO) timerAlarmEnable(My_timer);
@@ -437,7 +444,7 @@ void connectMQTT() {
         // รอโซลินอยด์ทำงาน (เฉพาะโหมด AUTO)
         if (currentMode == mode::AUTO) {
           // รอจนกว่าจะมีการตี หรือหมดเวลา (เผื่อระบบรวนจะได้ไม่ค้าง)
-          while (!solenoidActive && (millis() - dropStartTime < 2000)) {
+          while (!flagsolenoid && (millis() - dropStartTime < 2000)) {
             delay(1);
           }
         }
@@ -470,7 +477,8 @@ void connectMQTT() {
       }
 
         solenoid.off();
-        solenoidActive = false;
+        flagsolenoid = false;
+        hited = false;
         
         // ปิด Interrupt และ Timer เมื่อทำงานเสร็จ เพื่อไม่ให้กวนโหมด IDLE
         if (currentMode == AUTO) timerAlarmDisable(My_timer); 
